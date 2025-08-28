@@ -1,12 +1,12 @@
 {
   "domain": "viggo",
   "name": "Viggo",
-  "documentation": "https://github.com/Smeltvig/Viggo",
-  "issue_tracker": "https://github.com/Smeltvig/Viggo/issues",
+  "documentation": "https://github.com/RaZer0r/Home-Assistant_Viggo",
+  "issue_tracker": "https://github.com/RaZer0r/Home-Assistant_Viggo/issues",
   "dependencies": [],
   "after_dependencies": [],
-  "codeowners": ["@Smeltvig"],
+  "codeowners": ["@RaZer0r"],
   "requirements": ["beautifulsoup4", "html.parser"],
   "iot_class": "cloud_polling",
-  "version": "0.5.0.0"
+  "version": "0.5.0.1"
 }
