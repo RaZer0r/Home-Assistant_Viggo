@@ -1,1 +1,49 @@
-
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Viggo Configuration",
+        "description": "Enter your Viggo credentials",
+        "data": {
+          "url": "Viggo URL",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "mfa": {
+        "title": "Two-Factor Authentication",
+        "description": "Enter the MFA code from your Viggo app. This code will expire in {expiry_minutes} minutes.",
+        "data": {
+          "mfa_code": "MFA Code"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Failed to authenticate with Viggo. Please check your credentials.",
+      "cannot_connect": "Failed to connect to Viggo URL.",
+      "invalid_mfa_code": "Invalid MFA code. Please try again.",
+      "mfa_expired": "MFA code has expired. Please start over.",
+      "mfa_session_expired": "MFA session has expired. Please start over."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Viggo Options",
+        "description": "Configure Viggo component options",
+        "data": {
+          "userinfo": "Show user information",
+          "unread": "Show unread messages and posts",
+          "amount": "Number of messages to fetch",
+          "relations": "Show relations (family members)",
+          "schedule": "Show schedule",
+          "homework": "Show homework",
+          "update_interval": "Update interval (minutes)"
+        }
+      }
+    }
+  }
+}
