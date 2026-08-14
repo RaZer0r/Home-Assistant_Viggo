@@ -8,6 +8,6 @@
   "codeowners": ["@RaZer0r"],
   "requirements": ["beautifulsoup4", "html.parser"],
   "iot_class": "cloud_polling",
-  "version": "0.5.0.2",
+  "version": "0.5.0.3",
   "config_flow": true
 }

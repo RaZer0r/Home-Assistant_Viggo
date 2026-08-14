@@ -69,6 +69,36 @@ class viggo_api:
     mfa_required = False
     mfa_session_data = {}
 
+    @staticmethod
+    def _form_action_matches(form, pattern: str) -> bool:
+        """Return True when a form action points to the expected account endpoint."""
+        if not form:
+            return False
+
+        action = str(form.get("action", "") or "").lower()
+        pattern = pattern.lower()
+        return pattern in action or action.endswith(pattern)
+
+    @classmethod
+    def _find_login_form(cls, soup):
+        """Find the login form even if the action contains query strings or an absolute URL."""
+        if not soup:
+            return None
+        for form in soup.select("form"):
+            if cls._form_action_matches(form, "/basic/account/login") or cls._form_action_matches(form, "basic/account/login"):
+                return form
+        return None
+
+    @classmethod
+    def _find_mfa_form(cls, soup):
+        """Find the MFA form even if the action contains query strings or an absolute URL."""
+        if not soup:
+            return None
+        for form in soup.select("form"):
+            if cls._form_action_matches(form, "/basic/account/mfa") or cls._form_action_matches(form, "basic/account/mfa"):
+                return form
+        return None
+
     def __init__(self, url="", username="", password=""):
         self.baseUrl = url
         self.username = username
@@ -118,10 +148,24 @@ class viggo_api:
         if not soup:
             raise Exception("Failed to fetch login page")
 
-        # Check if we're at the login page
-        login_form = soup.select_one("form[action='/Basic/Account/Login']")
-        if not login_form:
-            # Already logged in
+        # Check which page we are actually on.
+        login_form = self._find_login_form(soup)
+        if login_form:
+            # Prepare login payload
+            payload = {
+                INPUT_USERNAME: self.username,
+                INPUT_PASSWORD: self.password,
+                INPUT_RETURN_URL: soup.select_one(f"input[name={INPUT_RETURN_URL}]")["value"],
+            }
+        elif self._find_mfa_form(soup):
+            self.mfa_required = True
+            self.mfa_session_data = {
+                "soup": soup,
+                "timestamp": datetime.now(),
+            }
+            return
+        else:
+            # Already logged in or a different page has been returned
             self.loggedIn = True
             self._login(soup)
             return
@@ -153,7 +197,7 @@ class viggo_api:
             raise Exception("Failed to submit login credentials")
 
         # Check if MFA is required
-        mfa_form = soup.select_one("form[action='/Basic/Account/MFA']")
+        mfa_form = self._find_mfa_form(soup)
         if mfa_form:
             # MFA is required - store session data
             self.mfa_required = True
@@ -174,7 +218,7 @@ class viggo_api:
             raise Exception("No active MFA session")
 
         soup = self.mfa_session_data["soup"]
-        mfa_form = soup.select_one("form[action='/Basic/Account/MFA']")
+        mfa_form = self._find_mfa_form(soup)
         if not mfa_form:
             raise Exception("MFA form not found")
 
@@ -194,7 +238,7 @@ class viggo_api:
             raise Exception("Failed to submit MFA code")
 
         # Check if we're still on the MFA page (invalid code)
-        if soup.select_one("form[action='/Basic/Account/MFA']"):
+        if self._find_mfa_form(soup):
             raise Exception("Invalid MFA code")
 
         # MFA verified - complete login
@@ -231,11 +275,8 @@ class viggo_api:
         if soup is None:
             soup = self._fetchHtml(self.baseUrl)
         if soup:
-            # Are we still at the loginpage? Then we are NOT logged in
-            self.loggedIn = (
-                soup.select_one("form[action='/Basic/Account/Login']") is None
-            )
-            if not self.loggedIn:
+            # Handle login, MFA challenge, or a logged-in homepage explicitly.
+            if self._find_login_form(soup):
                 # Prepare a payload for login
                 payload = {
                     INPUT_USERNAME: self.username,
@@ -274,7 +315,15 @@ class viggo_api:
 
                     # Left the it again with the current page (soup)
                     self._login(soup)
+            elif self._find_mfa_form(soup):
+                self.loggedIn = False
+                self.mfa_required = True
+                self.mfa_session_data = {
+                    "soup": soup,
+                    "timestamp": datetime.now(),
+                }
             else:
+                self.loggedIn = True
                 # We are logged in - lets get to work....
                 msgTag = soup.select_one("div[id='notification-messages']").a
                 bbsTag = soup.select_one("div[id='notification-user']").a
