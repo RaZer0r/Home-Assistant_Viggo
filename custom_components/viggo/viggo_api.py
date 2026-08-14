@@ -66,6 +66,8 @@ class viggo_api:
     loggedIn = False
     unreadMsg, unreadBbs = -1, -1
     bbs, relations = {}, {}
+    mfa_required = False
+    mfa_session_data = {}
 
     def __init__(self, url="", username="", password=""):
         self.baseUrl = url
@@ -73,8 +75,135 @@ class viggo_api:
         self.password = password
         self.msgBox = mailbox()
         self.fingerPrintFile = DOMAIN + "_" + self.username
+        self.mfa_required = False
+        self.mfa_session_data = {}
+
+    def login_initial(self) -> bool:
+        """Perform initial login and return whether MFA is required."""
+        self._login_initial_step()
+        return self.mfa_required
+
+    def login_mfa(self, mfa_code: str) -> bool:
+        """Submit MFA code and complete login."""
+        if not self.mfa_required or not self.mfa_session_data:
+            raise Exception("MFA not required or session expired")
+        return self._login_mfa_step(mfa_code)
 
     def update(self):
+        self._login()
+
+        self._fetchRelations()
+        self._fetchSchedule()
+
+        self._fetchHomework()
+
+        self._fetchFolders()
+        self._fetchMsg()
+
+        self._fetchBbs()
+
+        gc.collect()
+
+        return True
+
+    def getMsgFolders(self):
+        return self.msgBox.folders.values()
+
+    def getBbs(self):
+        return self.bbs.values()
+
+    def _login_initial_step(self):
+        """Perform the initial login step and detect if MFA is required."""
+        soup = self._fetchHtml(self.baseUrl)
+        if not soup:
+            raise Exception("Failed to fetch login page")
+
+        # Check if we're at the login page
+        login_form = soup.select_one("form[action='/Basic/Account/Login']")
+        if not login_form:
+            # Already logged in
+            self.loggedIn = True
+            self._login(soup)
+            return
+
+        # Prepare login payload
+        payload = {
+            INPUT_USERNAME: self.username,
+            INPUT_PASSWORD: self.password,
+            INPUT_RETURN_URL: soup.select_one(f"input[name={INPUT_RETURN_URL}]")["value"],
+        }
+
+        # Load or create fingerprint
+        if os.path.isfile(self.fingerPrintFile):
+            with open(self.fingerPrintFile, "r") as f:
+                payload[INPUT_FINGERPRINT] = f.read()
+        else:
+            with open(self.fingerPrintFile, "w") as f:
+                payload[INPUT_FINGERPRINT] = soup.select_one(
+                    "input[name='fingerprint']"
+                )["value"]
+                f.write(payload[INPUT_FINGERPRINT])
+        self.fingerPrint = payload[INPUT_FINGERPRINT]
+
+        # Send login credentials
+        soup = self._fetchHtml(
+            url=self.baseUrl + soup.find("form")["action"], postData=payload
+        )
+        if not soup:
+            raise Exception("Failed to submit login credentials")
+
+        # Check if MFA is required
+        mfa_form = soup.select_one("form[action='/Basic/Account/MFA']")
+        if mfa_form:
+            # MFA is required - store session data
+            self.mfa_required = True
+            self.mfa_session_data = {
+                "soup": soup,
+                "timestamp": datetime.now(),
+            }
+            soup.decompose()
+            return
+
+        # No MFA - continue with regular login
+        self.mfa_required = False
+        self._login(soup)
+
+    def _login_mfa_step(self, mfa_code: str) -> bool:
+        """Submit MFA code and complete authentication."""
+        if not self.mfa_session_data or "soup" not in self.mfa_session_data:
+            raise Exception("No active MFA session")
+
+        soup = self.mfa_session_data["soup"]
+        mfa_form = soup.select_one("form[action='/Basic/Account/MFA']")
+        if not mfa_form:
+            raise Exception("MFA form not found")
+
+        # Prepare MFA payload
+        payload = {
+            "code": mfa_code,
+            INPUT_RETURN_URL: soup.select_one(
+                f"input[name={INPUT_RETURN_URL}]"
+            )["value"],
+        }
+
+        # Submit MFA code
+        soup = self._fetchHtml(
+            url=self.baseUrl + mfa_form["action"], postData=payload
+        )
+        if not soup:
+            raise Exception("Failed to submit MFA code")
+
+        # Check if we're still on the MFA page (invalid code)
+        if soup.select_one("form[action='/Basic/Account/MFA']"):
+            raise Exception("Invalid MFA code")
+
+        # MFA verified - complete login
+        self.mfa_required = False
+        self.mfa_session_data = {}
+        self._login(soup)
+        return True
+
+    def _login(self, soup=None):
         self._login()
 
         self._fetchRelations()

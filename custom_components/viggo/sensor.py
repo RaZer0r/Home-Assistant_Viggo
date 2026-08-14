@@ -4,8 +4,12 @@ from __future__ import annotations
 import logging
 
 from datetime import timedelta
+from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
@@ -32,8 +36,45 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up sensors from a config entry."""
+    # Retrieve Viggo and config from hass.data
+    viggo = hass.data[DOMAIN][entry.entry_id][CONF_CLIENT]
+    conf = hass.data[DOMAIN][entry.entry_id][CONF_CONFIG]
+    UPDATE_INTERVAL = conf[CONF_UPDATE_INTERVAL]
 
+    # Define a update function
+    async def async_update_data():
+        # Call, and wait for it to finish, the function with the refresh procedure
+        await hass.async_add_executor_job(viggo.update)
+
+    # Create a coordinator
+    coordinator = DataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        name=CONF_PLATFORM,
+        update_method=async_update_data,
+        update_interval=timedelta(minutes=UPDATE_INTERVAL),
+    )
+
+    # Immediate refresh
+    await coordinator.async_request_refresh()
+
+    # Store coordinator in hass.data
+    hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
+
+    # Add sensors to Home Assistant
+    await _async_add_sensors(
+        hass, async_add_entities, coordinator, viggo, conf, entry.entry_id
+    )
+
+
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+    """Set up platform from YAML configuration (legacy)."""
     # Define a update function
     async def async_update_data():
         # Retrieve the client stored in the hass data stack
@@ -58,6 +99,21 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     # Immediate refresh
     await coordinator.async_request_refresh()
 
+    # Add sensors to Home Assistant
+    await _async_add_sensors(
+        hass, async_add_entities, coordinator, viggo, conf, None
+    )
+
+
+async def _async_add_sensors(
+    hass: HomeAssistant,
+    async_add_entities: AddEntitiesCallback,
+    coordinator: DataUpdateCoordinator,
+    viggo: Any,
+    conf: dict,
+    entry_id: str | None,
+) -> None:
+    """Add sensors to Home Assistant."""
     # Add sensors to Home Assistant
     sensors = []
     if conf["userinfo"]:
